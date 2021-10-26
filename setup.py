@@ -9,7 +9,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="container-image-scan",
-    version="0.0.2",
+    version="0.0.4",
     author="CrowdStrike",
     description="Script to scan a container and return response codes indicating pass/fail",
     long_description=long_description,
