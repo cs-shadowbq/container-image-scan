@@ -1,6 +1,7 @@
 from __future__ import print_function
 import argparse
 import docker
+from docker_image import reference
 import json
 import logging
 import requests
@@ -291,20 +292,32 @@ class EnvDefault(argparse.Action):
 # End code authored by Russell Heilling
 
 
+# https://stackoverflow.com/questions/40643439/while-using-pythons-add-argument-in-argparse-how-can-i-throw-an-exception-if-a
+class DeprecateAction(argparse.Action):
+    def __init__(self, *args, **kwargs):
+        self.call_count = 0
+        if 'help' in kwargs:
+            kwargs['help'] = f'[DEPRECATED] {kwargs["help"]}'
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if self.call_count == 0:
+            sys.stderr.write(f"The option `{option_string}` is deprecated. It will be ignored.\n")
+            sys.stderr.write(self.help + '\n')
+            delattr(namespace, self.dest)
+        self.call_count += 1
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='Crowdstrike - scan your container image.')
+
+    parser.register('action', 'ignore', DeprecateAction)
+
     required = parser.add_argument_group('required arguments')
     required.add_argument('-u', '--clientid', action=EnvDefault,
                           dest="client_id", envvar='FALCON_CLIENT_ID',
                           help="Falcon OAuth2 API ClientID")
-    required.add_argument('-r', '--repo', action=EnvDefault, dest="repo",
-                          envvar='CONTAINER_REPO',
-                          help="Container image repository")
-    required.add_argument('-t', '--tag', action=EnvDefault, dest="tag",
-                          default='latest',
-                          envvar='CONTAINER_TAG',
-                          help="Container image tag")
     required.add_argument('-c', '--cloud-region', action=EnvDefault, dest="cloud",
                           envvar="FALCON_CLOUD_REGION",
                           default='us-1',
@@ -314,6 +327,12 @@ def parse_args():
                           default='500',
                           envvar='SCORE',
                           help="Vulnerability score threshold")
+    required.add_argument('-r', '--repo', action=EnvDefault, dest="repo",
+                          envvar='CONTAINER_REPO',
+                          help="Container image repository")
+
+    parser.add_argument('-t', '--tag', help="This argument is deprecated, please use inline tags",
+                        action='ignore')
     parser.add_argument('--json-report', dest="report", default=None,
                         help='Export JSON report to specified file')
     parser.add_argument('--log-level', dest='log_level', default='INFO',
@@ -323,12 +342,19 @@ def parse_args():
     args = parser.parse_args()
     logging.getLogger().setLevel(args.log_level)
 
-    return args.client_id, args.repo, args.tag, args.cloud, args.score, args.report
+    return args.client_id, args.repo, args.cloud, args.score, args.report
 
 
 def main():
     try:
-        client_id, repo, tag, cloud, score, json_report = parse_args()
+        client_id, repourl, cloud, score, json_report = parse_args()
+        repoObj = reference.Reference.parse(repourl)
+        repo = repoObj["name"]
+        tag = repoObj["tag"] or 'latest'
+        if repoObj["name"].count("/") > 1:
+            hostname, repo = repoObj.split_hostname()
+            log.error("Exiting: Requesting remote Registry URL: " + hostname)
+            sys.exit(ScanStatusCode.ScriptFailure.value)
         client = docker.from_env()
         client_secret = env.get('FALCON_CLIENT_SECRET')
         if client_secret is None:

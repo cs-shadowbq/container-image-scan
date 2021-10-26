@@ -9,7 +9,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name="container-image-scan",
-    version="0.0.1",
+    version="0.0.2",
     author="CrowdStrike",
     description="Script to scan a container and return response codes indicating pass/fail",
     long_description=long_description,
@@ -22,6 +22,7 @@ setup(
     install_requires=[
         'docker',
         'requests'
+        'docker-image-py'
     ],
     extras_require={
         'devel': [
