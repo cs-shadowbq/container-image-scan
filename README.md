@@ -23,26 +23,31 @@ $ pip3 install docker requests docker-image-py
 
 ```shell
 $ python3 cs_scanimage.py --help
-usage: cs_scanimage.py [-h] -u CLIENT_ID -r REPO
-                       [-c {us-1,us-2,eu-1}] [--json-report REPORT]
+usage: cs_scanimage.py [-h] [-u CLIENT_ID] [-c {us-1,us-2,eu-1}] 
+                       [-s SCORE] -r REPO 
+                       [-x {default,remote}] 
+                       [-t TAG] [--json-report REPORT]
                        [--log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}]
 
 Crowdstrike - scan your container image.
 
 optional arguments:
   -h, --help            show this help message and exit
+  -x {default,remote}, --context {default,remote}
+                        This argument will use a defined docker context
+  -t TAG, --tag TAG     [DEPRECATED] This argument is deprecated, please use inline tags
   --json-report REPORT  Export JSON report to specified file
   --log-level {DEBUG,INFO,WARNING,ERROR,CRITICAL}
                         Set the logging level
-  -s SCORE --score_threshold
-                        Vulnerability score threshold default 500
 
 required arguments:
   -u CLIENT_ID, --clientid CLIENT_ID
                         Falcon OAuth2 API ClientID
-  -r REPO, --repo REPO  Container image repository
   -c {us-1,us-2,eu-1}, --cloud-region {us-1,us-2,eu-1}
                         CrowdStrike cloud region
+  -s SCORE, --score_threshold SCORE
+                        Vulnerability score threshold
+  -r REPO, --repo REPO  Container image repository
 ```
 
 Note that CrowdStrike Falcon OAuth2 credentials may be supplied also by the means of environment variables: FALCON_CLIENT_ID, FALCON_CLIENT_SECRET, and FALCON_CLOUD_REGION. Establishing and retrieving OAuth2 API credentials can be performed at https://falcon.crowdstrike.com/support/api-clients-and-keys.
@@ -132,6 +137,42 @@ INFO    Searching for malware in scan report...
 INFO    Searching for misconfigurations in scan report...
 INFO    Vulnerability score threshold not met: '0' out of '500'
 ```
+
+### Example 4
+
+Using a Remote Docker Context for docker daemon via SSH. If you are running a context, it will use the configure shell context in use `docker context use remote`, but you can override the current context with the `-x <contextname> ` or `ENV:DOCKER_CONTEXT`  
+
+```shell
+$python cs_scanimage.py -x remote -r user/image:tag
+INFO    Pulling container image: 'user/image:tag'
+INFO    Tagging 'user/image:tag' to 'container-upload.us-1.crowdstrike.com/user/image:tag'
+INFO    Performing docker login to CrowdStrike Image Assessment Service
+INFO    Performing docker push to CrowdStrike 'container-upload.us-1.crowdstrike.com/user/image:tag'
+INFO    Docker: The push refers to repository [container-upload.us-1.crowdstrike.com/user/image]
+INFO    Docker: Preparing
+INFO    Docker: Preparing
+INFO    Docker: Preparing
+INFO    Docker: Preparing
+INFO    Docker: Preparing
+INFO    Docker: Preparing
+INFO    Docker: Waiting
+INFO    Docker: Layer already exists
+INFO    Docker: Layer already exists
+INFO    Docker: Layer already exists
+INFO    Docker: Layer already exists
+INFO    Docker: Layer already exists
+INFO    Docker: Layer already exists
+INFO    Docker: latest-alpine: digest: sha256:b15273d0aecfb3dbd987d0bd6663873825b3ab9125fac9aba8f2911d24722abc size: 1580
+INFO    Authenticating with CrowdStrike Falcon API
+INFO    Downloading Image Scan Report
+INFO    Searching for vulnerabilities in scan report...
+INFO    Searching for leaked secrets in scan report...
+INFO    Searching for malware in scan report...
+INFO    Searching for misconfigurations in scan report...
+WARNING Alert: Misconfiguration found
+INFO    Vulnerability score threshold not met: '0' out of '500'
+```
+
 
 ## Running the Scan using CI/CD
 

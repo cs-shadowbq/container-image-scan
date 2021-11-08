@@ -40,44 +40,39 @@ class ScanImage(Exception):
         self.repo = repo
         self.tag = tag
         self.client = client
-        self.server_domain = registry_url_map[cloud]
+        self.cs_server_domain = registry_url_map[cloud]
         self.auth_url = "%s/oauth2/token" % (auth_url_map[cloud])
 
     # Step 1: perform docker tag to the registry corresponding to the cloud entered
     def docker_tag(self):
-        local_tag = "%s:%s" % (self.repo, self.tag)
-        url_tag = "%s/%s" % (self.server_domain, self.repo)
-
-        try:
-            dock_api_client = docker.APIClient()
-        except AttributeError:
-            dock_api_client = docker.Client()
-
+        local_image_url = "%s:%s" % (self.repo, self.tag)
+        cs_image_url = "%s/%s" % (self.cs_server_domain, self.repo)
         container_image = ''.join((''.join(img["RepoTags"])
-                                   for img in dock_api_client.images(name=local_tag)))
+                                   for img in self.client.images(name=local_image_url)))
         if not container_image:
-            log.info("Pulling container image: '%s'" % (local_tag))
-            dock_api_client.pull(self.repo, self.tag)
+            log.info("Pulling container image: '%s'" % (local_image_url))
+            self.client.pull(self.repo, self.tag)
 
-        log.info("Tagging '%s' to '%s:%s'" % (local_tag, url_tag, self.tag))
-        dock_api_client.tag(local_tag, url_tag, self.tag, force=True)
+        log.info("Tagging '%s' to '%s:%s'" % (local_image_url, cs_image_url, self.tag))
+        self.client.tag(local_image_url, cs_image_url, self.tag, force=True)
 
     # Step 2: login using the credentials supplied
     def docker_login(self):
         log.info("Performing docker login to CrowdStrike Image Assessment Service")
         self.client.login(username=self.client_id,
-                          password=self.client_secret, registry=self.server_domain)
+                          password=self.client_secret, 
+                          registry=self.cs_server_domain)
 
     # Step 3: perform docker push using the repo and tag supplied
     def docker_push(self):
-        image_str = "%s/%s:%s" % (self.server_domain, self.repo, self.tag)
-        log.info("Performing docker push to %s", image_str)
+        cs_image_str = "%s/%s:%s" % (self.cs_server_domain, self.repo, self.tag)
+        log.info("Performing docker push to CrowdStrike '%s'", cs_image_str)
 
         try:
             image_push = self.client.images.push(
-                image_str, stream=True, decode=True)
+                cs_image_str, stream=True, decode=True)
         except AttributeError:
-            image_push = self.client.push(image_str, stream=True, decode=True)
+            image_push = self.client.push(cs_image_str, stream=True, decode=True)
 
         for line in image_push:
             if 'error' in line:
@@ -111,7 +106,7 @@ class ScanImage(Exception):
     def get_scanreport(self, token):
         log.info("Downloading Image Scan Report")
         scanreport_endpoint = "/reports?"
-        server_url = "https://%s" % (self.server_domain)
+        server_url = "https://%s" % (self.cs_server_domain)
         scanreport_url = "%s%s" % (server_url, scanreport_endpoint)
         retry_count = 10
         sleep_seconds = 10
@@ -331,6 +326,10 @@ def parse_args():
                           envvar='CONTAINER_REPO',
                           help="Container image repository")
 
+    parser.add_argument('-x', '--context', action=EnvDefault, envvar='DOCKER_CONTEXT',
+                        default=docker.context.config.get_current_context_name(), 
+                        help="This argument will use a defined docker context",
+                        choices=[v.Name for v in docker.ContextAPI().contexts()])
     parser.add_argument('-t', '--tag', help="This argument is deprecated, please use inline tags",
                         action='ignore')
     parser.add_argument('--json-report', dest="report", default=None,
@@ -342,12 +341,13 @@ def parse_args():
     args = parser.parse_args()
     logging.getLogger().setLevel(args.log_level)
 
-    return args.client_id, args.repo, args.cloud, args.score, args.report
+    return args.client_id, args.repo, args.cloud, args.score, args.context, \
+        args.report
 
 
 def main():
     try:
-        client_id, repourl, cloud, score, json_report = parse_args()
+        client_id, repourl, cloud, score, context, json_report = parse_args()
         repoObj = reference.Reference.parse(repourl)
         repo = repoObj["name"]
         tag = repoObj["tag"] or 'latest'
@@ -355,7 +355,10 @@ def main():
             hostname, repo = repoObj.split_hostname()
             log.error("Exiting: Requesting remote Registry URL: " + hostname)
             sys.exit(ScanStatusCode.ScriptFailure.value)
-        client = docker.from_env()
+
+        contextHost = docker.ContextAPI().inspect_context(context)['Endpoints']['docker']['Host']
+        client = docker.APIClient(base_url=contextHost)
+
         client_secret = env.get('FALCON_CLIENT_SECRET')
         if client_secret is None:
             print("Please enter your Falcon OAuth2 API Secret")
